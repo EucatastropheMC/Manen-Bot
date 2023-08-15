@@ -4,6 +4,7 @@ from discord.ext import commands
 from discord.ext.commands import Context
 import mysql.connector
 import asyncio
+import re
 
 intents = discord.Intents.default()
 intents.typing = False
@@ -26,46 +27,64 @@ def validate_response_with_feedback(idx, response):
     feedback = None
     validated_response = response.strip()
 
+    print(f"Validating response for question {idx}: {validated_response}")  # Add this line
+
     if idx == 0:
-        if not validated_response.lower().startswith("tbd"):
-            feedback = f"Invalid response. Please start with 'TBD' if unknown."
+        if len(validated_response) > 16:
+            feedback = f"Invalid response. Please enter up to 16 characters."
+        elif not re.match(r'^[a-zA-Z0-9-_]+$', validated_response):
+            feedback = f"Invalid response. Please use only alphanumeric characters, hyphens, and underscores."
+            validated_response = None
     elif idx == 1:
-        if validated_response.lower() not in ["male", "female", "other"]:
-            feedback = f"Invalid response. Please enter 'Male', 'Female', or 'Other'."
+        if validated_response.lower() not in ["male", "female", "other", "tbd"]:
+            feedback = f"Invalid response. Please enter 'Male', 'Female', or 'Other'. Enter 'TBD' if unknown."
+            validated_response = None
     elif idx == 2:
-        if not validated_response:
-            feedback = f"Invalid response. Please enter the full name."
+        if not re.match(r'^[a-zA-ZÀ-ÖØ-öø-ÿ ]+$', validated_response):
+            feedback = f"Invalid response. Please use only letters and accented characters."
+            validated_response = None
     elif idx == 3:
         if not validated_response.isdigit() or int(validated_response) <= 0:
             feedback = f"Invalid response. Please enter a valid age in years."
+            validated_response = None
     elif idx == 4:
-        if not validated_response:
-            feedback = f"Invalid response. Please enter the nationality."
+        if not re.match(r'^[a-zA-ZÀ-ÖØ-öø-ÿ ]+$', validated_response):
+            feedback = f"Invalid response. Please use only letters and accented characters. Ex: half German half Japanese."
+            validated_response = None
     elif idx == 5:
-        if not validated_response.startswith("#") or (not validated_response.endswith("cm") and not validated_response.endswith('"')):
+        if not (validated_response.startswith("#") and (validated_response.endswith("cm") or validated_response.endswith('"'))):
             feedback = f"Invalid response. Please enter the height in the format of '#cm' or '#'#'\"'."
+            validated_response = None
     elif idx == 6:
-        if not validated_response:
-            feedback = f"Invalid response. Please enter the occupation."
+        if not re.match(r'^[a-zA-ZÀ-ÖØ-öø-ÿ ]+$', validated_response):
+            feedback = f"Invalid response. Please use only letters and accented characters."
+            validated_response = None
     elif idx == 7:
         if validated_response.lower() not in ["yes", "no", "tbd"]:
             feedback = f"Invalid response. Please enter 'Yes', 'No', or 'TBD'."
+            validated_response = None
     elif idx == 8:
-        if not validated_response.isdigit():
-            feedback = f"Invalid response. Please enter a valid phone number. Ex: 1234567890"
+        if not re.match(r'^[0-9\-]+$', validated_response):
+            feedback = f"Invalid response. Please use only numbers and hyphens. Example: 123-456-7890"
+            validated_response = None
     elif idx == 9:
         if not validated_response:
-            feedback = f"Invalid response. Please enter any details."
+            feedback = f"Invalid response. Please enter any details. If none, type 'TBD'."
+            validated_response = None
     elif idx == 10:
         if validated_response.lower() not in ["yes", "no", "tbd"]:
             feedback = f"Invalid response. Please enter 'Yes', 'No', or 'TBD'."
+            validated_response = None
     elif idx == 11:
         if not validated_response:
-            feedback = f"Invalid response. Please enter the known addresses."
+            feedback = f"Invalid response. Please enter any known addresses. If none, type 'TBD'."
+            validated_response = None
     elif idx == 12:
         if not validated_response:
-            feedback = f"Invalid response. Please enter any encounters."
-    # ... (other questions)
+            feedback = f"Invalid response. Please enter any encounters. If none, type 'TBD'."
+            validated_response = None
+
+    print(f"Feedback for question {idx}: {feedback}")
 
     return validated_response, feedback
 
@@ -77,7 +96,7 @@ async def on_ready():
 
 @bot.slash_command(name="createfile", guild_ids=[1105196644808527872])
 async def createfile(ctx: Context):
-    await ctx.send("Starting file creation.")
+    create_confirmation = await ctx.send("Starting file creation.")
 
     questions = [
         "Please enter the character's IGN. If unknown, type TBD.",
@@ -92,12 +111,15 @@ async def createfile(ctx: Context):
         "Please enter any details about the character. If none, type TBD.",
         "Is the character associated with anyone? If none or unknown, type TBD.",
         "What are the known addresses for this person? If unknown, type TBD.",
-        "Please list any encounters you have had with this character. If none, type TBD."
+        "Please describe any encounters you have had with this character. If none, type TBD."
     ]
 
     answers = []
 
-    for idx, question in enumerate(questions):
+    idx = 0  # Initialize question index
+
+    while idx < len(questions):
+        question = questions[idx]
         question_message = await ctx.send(question)
 
         def check(message):
@@ -109,14 +131,22 @@ async def createfile(ctx: Context):
 
             if response.content.lower() == 'cancel':
                 await question_message.delete()
-                await ctx.send("File creation canceled.")
+                await create_confirmation.delete()
+                cancel_confirmation = await ctx.send("File creation canceled.")
+                countdown_msg = await ctx.send("This message will self-destruct in 10 seconds...")
+                for seconds_left in range(9, 0, -1):
+                    await asyncio.sleep(1)
+                    await countdown_msg.edit(content=f"This message will self-destruct in {seconds_left} seconds...")
+                await countdown_msg.delete()
+                await cancel_confirmation.delete()
                 return
             else:
                 validated_response, feedback = validate_response_with_feedback(idx, response.content)
                 if validated_response is None:
                     await ctx.send(feedback)
-                    return
-                answers.append(validated_response)
+                else:
+                    answers.append(validated_response)
+                    idx += 1  # Move to the next question
 
             await question_message.delete()
         except asyncio.TimeoutError:
@@ -144,7 +174,6 @@ async def createfile(ctx: Context):
             associates TEXT,
             addresses TEXT,
             encounters MEDIUMTEXT,
-            clearance_level VARCHAR(255)
         )"""
         db_cursor.execute(create_table_query)
 
