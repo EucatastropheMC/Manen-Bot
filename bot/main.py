@@ -236,7 +236,7 @@ async def delete_invalid_messages(messages):
         try:
             await message.delete()
         except discord.errors.NotFound:
-            pass  # Message may have been deleted already
+            pass  # Message may have been deleted already.
 
 
 bot.run('TOKEN')
